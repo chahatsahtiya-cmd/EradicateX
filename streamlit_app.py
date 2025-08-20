@@ -5,48 +5,16 @@ from datetime import date, time
 # ------------------ Page Config ------------------
 st.set_page_config(page_title="Epidemic Care AI", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    body {
-        background: linear-gradient(135deg, #fce4ec, #e3f2fd);
-        font-family: "Arial", sans-serif;
-    }
-    .title {
-        font-size: 40px;
-        font-weight: bold;
-        color: #2e003e;
-        text-align: center;
-        padding: 15px;
-    }
-    .chat-bubble-doctor {
-        background: #673ab7;
-        color: white;
-        padding: 12px;
-        border-radius: 15px;
-        margin: 8px;
-        width: 70%;
-    }
-    .chat-bubble-user {
-        background: #e1bee7;
-        color: black;
-        padding: 12px;
-        border-radius: 15px;
-        margin: 8px;
-        width: 70%;
-        margin-left: auto;
-    }
-    .card {
-        background-color: white;
-        padding: 15px;
-        border-radius: 12px;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-        margin: 10px 0;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+body {background: linear-gradient(135deg, #fce4ec, #e3f2fd); font-family: "Arial", sans-serif;}
+.title {font-size:40px; font-weight:bold; color:#2e003e; text-align:center; padding:15px;}
+.chat-bubble-doctor {background:#673ab7; color:white; padding:12px; border-radius:15px; margin:8px; width:70%;}
+.chat-bubble-user {background:#e1bee7; color:black; padding:12px; border-radius:15px; margin:8px; width:70%; margin-left:auto;}
+.card {background-color:white; padding:15px; border-radius:12px; box-shadow:2px 2px 10px rgba(0,0,0,0.1); margin:10px 0;}
+.button-answer {margin:5px;}
+</style>
+""", unsafe_allow_html=True)
 
 # ------------------ Session Storage ------------------
 if "users" not in st.session_state:
@@ -62,13 +30,13 @@ if "chat_stage" not in st.session_state:
 
 # ------------------ AI Doctor Questions ------------------
 questions = [
-    ("Temperature", "🌡️ What is your body temperature (°C)?", "number"),
-    ("SpO2", "🫁 What is your oxygen saturation (%)?", "number"),
-    ("Cough", "🤧 Do you have a cough? (yes/no)", "bool"),
-    ("Headache", "😖 Do you have headaches? (yes/no)", "bool"),
-    ("Sore Throat", "🗣️ Do you have a sore throat? (yes/no)", "bool"),
-    ("Exposure", "👥 Any recent exposure to sick individuals? (yes/no)", "bool"),
-    ("Shortness of Breath", "🚨 Do you feel shortness of breath? (yes/no)", "bool"),
+    ("Temperature", "🌡️ What is your body temperature (°C)?", "number", ["36","37","38","39","40"]),
+    ("SpO2", "🫁 What is your oxygen saturation (%)?", "number", ["95","96","97","98","99","100"]),
+    ("Cough", "🤧 Do you have a cough?", "bool", ["Yes","No"]),
+    ("Headache", "😖 Do you have headaches?", "bool", ["Yes","No"]),
+    ("Sore Throat", "🗣️ Do you have a sore throat?", "bool", ["Yes","No"]),
+    ("Exposure", "👥 Any recent exposure to sick individuals?", "bool", ["Yes","No"]),
+    ("Shortness of Breath", "🚨 Do you feel shortness of breath?", "bool", ["Yes","No"]),
 ]
 
 # ------------------ Risk Plan ------------------
@@ -123,7 +91,6 @@ def login_page():
     st.markdown("<div class='title'>🔐 Login</div>", unsafe_allow_html=True)
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
-
     if st.button("Log in"):
         user = st.session_state.users.get(email)
         if user and user["password"] == password:
@@ -154,22 +121,23 @@ def dashboard():
                 st.markdown(f"<div class='chat-bubble-user'>{msg}</div>", unsafe_allow_html=True)
 
         if st.session_state.chat_stage < len(questions):
-            key, question, qtype = questions[st.session_state.chat_stage]
+            key, question, qtype, options = questions[st.session_state.chat_stage]
             if not st.session_state.chat_history or st.session_state.chat_history[-1][1] != "doctor":
                 st.session_state.chat_history.append((question, "doctor"))
 
-            # User input
-            user_input = st.text_input("Your Answer")
-            if st.button("Send"):
-                if user_input:
-                    st.session_state.chat_history.append((str(user_input), "user"))
+            # Interactive buttons for answers
+            col1, col2, col3, col4, col5 = st.columns(5)
+            cols = [col1, col2, col3, col4, col5]
+            for i, opt in enumerate(options):
+                if i >= len(cols): break
+                if cols[i].button(opt):
+                    st.session_state.chat_history.append((opt, "user"))
                     if qtype == "number":
-                        st.session_state.symptoms[key] = float(user_input)
+                        st.session_state.symptoms[key] = float(opt)
                     else:
-                        st.session_state.symptoms[key] = (str(user_input).lower() in ["yes", "y", "true"])
+                        st.session_state.symptoms[key] = (opt.lower() in ["yes", "y", "true"])
                     st.session_state.chat_stage += 1
                     st.rerun()
-
         else:
             st.success("✅ Assessment complete!")
             risk, steps = generate_plan(st.session_state.symptoms)
