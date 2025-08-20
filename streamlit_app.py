@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 
-# ------------------ In-memory user storage (for demo) ------------------
+# ------------------ In-memory user storage (demo only) ------------------
 if "users" not in st.session_state:
     st.session_state.users = {}  # email -> {name, password, reminder, checkins, assessments}
 
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
-# ------------------ Helper: Rule-based AI plan ------------------
+# ------------------ Helper: Simple AI-like Plan ------------------
 def generate_plan(symptoms):
     temp = float(symptoms.get("Temperature", 0))
     spo2 = int(symptoms.get("SpO2", 100))
@@ -41,7 +41,7 @@ def generate_plan(symptoms):
     elif score >= 3:
         risk = "🟡 MODERATE"
         steps = [
-            "Home care: rest, fluids, fever control (e.g., acetaminophen).",
+            "Home care: rest, fluids, fever control (acetaminophen).",
             "Self-isolate if cough/fever.",
             "Seek care if symptoms worsen."
         ]
