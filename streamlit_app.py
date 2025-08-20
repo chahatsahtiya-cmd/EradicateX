@@ -1,21 +1,44 @@
- import streamlit as st
+import streamlit as st
 import pandas as pd
-from datetime import date, datetime, time
+from datetime import date, time
+from gtts import gTTS
+import base64
+import os
+from streamlit_mic_recorder import mic_recorder, speech_to_text
 
-# ------------------ Styling ------------------
+# ------------------ Page Config ------------------
 st.set_page_config(page_title="Epidemic Care AI", layout="wide")
+
 st.markdown(
     """
     <style>
     body {
-        background: linear-gradient(135deg, #e0f7fa, #e1bee7);
+        background: linear-gradient(135deg, #fce4ec, #e3f2fd);
+        font-family: "Arial", sans-serif;
     }
     .title {
         font-size: 40px;
         font-weight: bold;
-        color: #4a148c;
+        color: #2e003e;
         text-align: center;
-        padding: 10px;
+        padding: 15px;
+    }
+    .chat-bubble-doctor {
+        background: #673ab7;
+        color: white;
+        padding: 12px;
+        border-radius: 15px;
+        margin: 8px;
+        width: 70%;
+    }
+    .chat-bubble-user {
+        background: #e1bee7;
+        color: black;
+        padding: 12px;
+        border-radius: 15px;
+        margin: 8px;
+        width: 70%;
+        margin-left: auto;
     }
     .card {
         background-color: white;
@@ -39,8 +62,9 @@ if "current_user" not in st.session_state:
 if "chat_stage" not in st.session_state:
     st.session_state.chat_stage = 0
     st.session_state.symptoms = {}
+    st.session_state.chat_history = []
 
-# ------------------ AI Doctor Dialogue ------------------
+# ------------------ AI Doctor Questions ------------------
 questions = [
     ("Temperature", "🌡️ What is your body temperature (°C)?", "number"),
     ("SpO2", "🫁 What is your oxygen saturation (%)?", "number"),
@@ -51,6 +75,7 @@ questions = [
     ("Shortness of Breath", "🚨 Do you feel shortness of breath?", "bool"),
 ]
 
+# ------------------ Risk Plan ------------------
 def generate_plan(symptoms):
     temp = float(symptoms.get("Temperature", 0))
     spo2 = int(symptoms.get("SpO2", 100))
@@ -67,34 +92,31 @@ def generate_plan(symptoms):
 
     if severe:
         risk = "🚨 EMERGENCY"
-        steps = [
-            "Seek emergency medical care immediately.",
-            "Avoid public transport, wear a mask if moving.",
-            "Monitor oxygen continuously if available."
-        ]
+        steps = ["Seek emergency medical care immediately.", "Avoid public transport.", "Monitor oxygen continuously."]
     elif score >= 5:
         risk = "⚠️ HIGH"
-        steps = [
-            "Consult a doctor within 24 hours.",
-            "Isolate if respiratory symptoms are present.",
-            "Track temperature and oxygen saturation twice daily."
-        ]
+        steps = ["Consult a doctor within 24 hours.", "Isolate immediately.", "Track temp & SpO2 twice daily."]
     elif score >= 3:
         risk = "🟡 MODERATE"
-        steps = [
-            "Home care: rest, fluids, fever control (acetaminophen).",
-            "Self-isolate if cough/fever.",
-            "Seek care if symptoms worsen."
-        ]
+        steps = ["Rest, fluids, and fever control.", "Self-isolate.", "Seek care if symptoms worsen."]
     else:
         risk = "🟢 LOW"
-        steps = [
-            "Monitor symptoms for 48–72 hours.",
-            "Hydrate, rest, and practice hygiene.",
-            "Consult a clinician if symptoms persist."
-        ]
-
+        steps = ["Monitor for 48–72 hours.", "Hydrate and rest.", "See doctor if persists."]
     return risk, steps
+
+# ------------------ Text-to-Speech ------------------
+def play_audio(text):
+    tts = gTTS(text)
+    tts.save("voice.mp3")
+    with open("voice.mp3", "rb") as f:
+        audio_bytes = f.read()
+    b64 = base64.b64encode(audio_bytes).decode()
+    md = f"""
+        <audio autoplay="true">
+        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        </audio>
+    """
+    st.markdown(md, unsafe_allow_html=True)
 
 # ------------------ Auth Pages ------------------
 def signup_page():
@@ -106,14 +128,12 @@ def signup_page():
 
     if st.button("Create Account"):
         if email in st.session_state.users:
-            st.error("Email already exists. Please log in.")
+            st.error("Email already exists.")
         else:
             st.session_state.users[email] = {
-                "name": name,
-                "password": password,
+                "name": name, "password": password,
                 "reminder": reminder.strftime("%H:%M"),
-                "checkins": [],
-                "assessments": []
+                "checkins": [], "assessments": []
             }
             st.success("Account created! Please log in.")
 
@@ -127,6 +147,8 @@ def login_page():
         if user and user["password"] == password:
             st.session_state.current_user = email
             st.session_state.chat_stage = 0
+            st.session_state.symptoms = {}
+            st.session_state.chat_history = []
             st.success("Logged in successfully!")
         else:
             st.error("Invalid credentials.")
@@ -140,19 +162,35 @@ def dashboard():
     menu = st.sidebar.radio("Menu", ["Talk to AI Doctor", "Daily Check-in", "Progress", "Logout"])
 
     if menu == "Talk to AI Doctor":
-        st.subheader("💬 AI Symptom Assessment")
+        st.subheader("💬 Talk to the AI Doctor")
+
+        # Display chat history
+        for msg, sender in st.session_state.chat_history:
+            if sender == "doctor":
+                st.markdown(f"<div class='chat-bubble-doctor'>{msg}</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='chat-bubble-user'>{msg}</div>", unsafe_allow_html=True)
+
         if st.session_state.chat_stage < len(questions):
             key, question, qtype = questions[st.session_state.chat_stage]
-            st.info(question)
+            if not st.session_state.chat_history or st.session_state.chat_history[-1][1] != "doctor":
+                st.session_state.chat_history.append((question, "doctor"))
+                play_audio(question)
 
-            if qtype == "number":
-                val = st.number_input(key, step=1.0 if key=="Temperature" else 1)
-            else:
-                val = st.radio(key, ["Yes","No"])
+            # Voice or text input
+            user_input = st.text_input("Your Answer")
+            voice = speech_to_text(language="en")
 
-            if st.button("Next ➡️"):
-                st.session_state.symptoms[key] = val if qtype=="number" else (val=="Yes")
-                st.session_state.chat_stage += 1
+            if st.button("Send") or voice:
+                val = voice if voice else user_input
+                if val:
+                    st.session_state.chat_history.append((str(val), "user"))
+                    if qtype == "number":
+                        st.session_state.symptoms[key] = float(val)
+                    else:
+                        st.session_state.symptoms[key] = (str(val).lower() in ["yes", "y", "true"])
+                    st.session_state.chat_stage += 1
+                    st.rerun()
 
         else:
             st.success("✅ Assessment complete!")
@@ -160,15 +198,13 @@ def dashboard():
             st.markdown(f"### Risk Level: {risk}")
             for s in steps:
                 st.write("- " + s)
-
-            user["assessments"].append({
-                "date": date.today().isoformat(),
-                "risk": risk,
-                "steps": steps
-            })
+            play_audio(f"Your risk level is {risk}. Please follow the recommended steps.")
+            user["assessments"].append({"date": date.today().isoformat(),"risk": risk,"steps": steps})
             if st.button("Start Over"):
                 st.session_state.chat_stage = 0
                 st.session_state.symptoms = {}
+                st.session_state.chat_history = []
+                st.rerun()
 
     elif menu == "Daily Check-in":
         st.subheader("📝 Daily Health Check-in")
@@ -178,17 +214,9 @@ def dashboard():
             spo2 = st.number_input("SpO₂ (%)", 50, 100, step=1)
             meds = st.checkbox("Took medications today")
             notes = st.text_area("Notes / Side effects")
-
             submitted = st.form_submit_button("Save Check-in")
             if submitted:
-                user["checkins"].append({
-                    "date": date.today().isoformat(),
-                    "score": score,
-                    "fever": fever,
-                    "spo2": spo2,
-                    "meds": meds,
-                    "notes": notes
-                })
+                user["checkins"].append({"date": date.today().isoformat(),"score": score,"fever": fever,"spo2": spo2,"meds": meds,"notes": notes})
                 st.success("Check-in saved ✅")
 
     elif menu == "Progress":
