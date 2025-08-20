@@ -1,15 +1,56 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, time
 
-# ------------------ In-memory user storage (demo only) ------------------
+# ------------------ Styling ------------------
+st.set_page_config(page_title="Epidemic Care AI", layout="wide")
+st.markdown(
+    """
+    <style>
+    body {
+        background: linear-gradient(135deg, #e0f7fa, #e1bee7);
+    }
+    .title {
+        font-size: 40px;
+        font-weight: bold;
+        color: #4a148c;
+        text-align: center;
+        padding: 10px;
+    }
+    .card {
+        background-color: white;
+        padding: 15px;
+        border-radius: 12px;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        margin: 10px 0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ------------------ Session Storage ------------------
 if "users" not in st.session_state:
-    st.session_state.users = {}  # email -> {name, password, reminder, checkins, assessments}
+    st.session_state.users = {}
 
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 
-# ------------------ Helper: Simple AI-like Plan ------------------
+if "chat_stage" not in st.session_state:
+    st.session_state.chat_stage = 0
+    st.session_state.symptoms = {}
+
+# ------------------ AI Doctor Dialogue ------------------
+questions = [
+    ("Temperature", "🌡️ What is your body temperature (°C)?", "number"),
+    ("SpO2", "🫁 What is your oxygen saturation (%)?", "number"),
+    ("Cough", "🤧 Do you have a cough?", "bool"),
+    ("Headache", "😖 Do you have headaches?", "bool"),
+    ("Sore Throat", "🗣️ Do you have a sore throat?", "bool"),
+    ("Exposure", "👥 Any recent exposure to sick individuals?", "bool"),
+    ("Shortness of Breath", "🚨 Do you feel shortness of breath?", "bool"),
+]
+
 def generate_plan(symptoms):
     temp = float(symptoms.get("Temperature", 0))
     spo2 = int(symptoms.get("SpO2", 100))
@@ -57,11 +98,11 @@ def generate_plan(symptoms):
 
 # ------------------ Auth Pages ------------------
 def signup_page():
-    st.title("🩺 Epidemic Care - Sign Up")
+    st.markdown("<div class='title'>🩺 Epidemic Care AI - Sign Up</div>", unsafe_allow_html=True)
     name = st.text_input("Full Name")
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
-    reminder = st.time_input("Daily Reminder Time", value=datetime.strptime("09:00","%H:%M").time())
+    reminder = st.time_input("Daily Reminder Time", value=time(9,0))
 
     if st.button("Create Account"):
         if email in st.session_state.users:
@@ -77,7 +118,7 @@ def signup_page():
             st.success("Account created! Please log in.")
 
 def login_page():
-    st.title("🔐 Login")
+    st.markdown("<div class='title'>🔐 Login</div>", unsafe_allow_html=True)
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
 
@@ -85,54 +126,52 @@ def login_page():
         user = st.session_state.users.get(email)
         if user and user["password"] == password:
             st.session_state.current_user = email
+            st.session_state.chat_stage = 0
             st.success("Logged in successfully!")
         else:
             st.error("Invalid credentials.")
 
-# ------------------ App Features ------------------
+# ------------------ Dashboard ------------------
 def dashboard():
     user = st.session_state.users[st.session_state.current_user]
     st.sidebar.success(f"Hello, {user['name']} 👋")
-    st.title("📊 Dashboard")
+    st.markdown("<div class='title'>📊 Dashboard</div>", unsafe_allow_html=True)
 
-    menu = st.sidebar.radio("Menu", ["Assessment", "Daily Check-in", "Progress", "Logout"])
+    menu = st.sidebar.radio("Menu", ["Talk to AI Doctor", "Daily Check-in", "Progress", "Logout"])
 
-    if menu == "Assessment":
-        st.subheader("Symptom Assessment")
-        with st.form("assessment_form"):
-            temp = st.number_input("Temperature (°C)", 30.0, 45.0, step=0.1)
-            spo2 = st.number_input("Oxygen Saturation (%)", 50, 100, step=1)
-            cough = st.checkbox("Cough")
-            headache = st.checkbox("Headache")
-            sore_throat = st.checkbox("Sore Throat")
-            exposure = st.checkbox("Recent exposure to case?")
-            sob = st.checkbox("Shortness of Breath")
+    if menu == "Talk to AI Doctor":
+        st.subheader("💬 AI Symptom Assessment")
+        if st.session_state.chat_stage < len(questions):
+            key, question, qtype = questions[st.session_state.chat_stage]
+            st.info(question)
 
-            submitted = st.form_submit_button("Generate Plan")
-            if submitted:
-                symptoms = {
-                    "Temperature": temp,
-                    "SpO2": spo2,
-                    "Cough": cough,
-                    "Headache": headache,
-                    "Sore Throat": sore_throat,
-                    "Exposure": exposure,
-                    "Shortness of Breath": sob
-                }
-                risk, steps = generate_plan(symptoms)
-                st.success(f"**Risk Level: {risk}**")
-                st.write("### Recommended Steps:")
-                for s in steps:
-                    st.write("- " + s)
+            if qtype == "number":
+                val = st.number_input(key, step=1.0 if key=="Temperature" else 1)
+            else:
+                val = st.radio(key, ["Yes","No"])
 
-                user["assessments"].append({
-                    "date": date.today().isoformat(),
-                    "risk": risk,
-                    "steps": steps
-                })
+            if st.button("Next ➡️"):
+                st.session_state.symptoms[key] = val if qtype=="number" else (val=="Yes")
+                st.session_state.chat_stage += 1
+
+        else:
+            st.success("✅ Assessment complete!")
+            risk, steps = generate_plan(st.session_state.symptoms)
+            st.markdown(f"### Risk Level: {risk}")
+            for s in steps:
+                st.write("- " + s)
+
+            user["assessments"].append({
+                "date": date.today().isoformat(),
+                "risk": risk,
+                "steps": steps
+            })
+            if st.button("Start Over"):
+                st.session_state.chat_stage = 0
+                st.session_state.symptoms = {}
 
     elif menu == "Daily Check-in":
-        st.subheader("Daily Health Check-in")
+        st.subheader("📝 Daily Health Check-in")
         with st.form("checkin_form"):
             score = st.slider("How bad are your symptoms today?", 0, 10, 0)
             fever = st.number_input("Fever (°C)", 30.0, 45.0, step=0.1)
