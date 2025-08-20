@@ -1,10 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, time
-from gtts import gTTS
-import base64
-import os
-from streamlit_mic_recorder import mic_recorder, speech_to_text
 
 # ------------------ Page Config ------------------
 st.set_page_config(page_title="Epidemic Care AI", layout="wide")
@@ -68,11 +64,11 @@ if "chat_stage" not in st.session_state:
 questions = [
     ("Temperature", "🌡️ What is your body temperature (°C)?", "number"),
     ("SpO2", "🫁 What is your oxygen saturation (%)?", "number"),
-    ("Cough", "🤧 Do you have a cough?", "bool"),
-    ("Headache", "😖 Do you have headaches?", "bool"),
-    ("Sore Throat", "🗣️ Do you have a sore throat?", "bool"),
-    ("Exposure", "👥 Any recent exposure to sick individuals?", "bool"),
-    ("Shortness of Breath", "🚨 Do you feel shortness of breath?", "bool"),
+    ("Cough", "🤧 Do you have a cough? (yes/no)", "bool"),
+    ("Headache", "😖 Do you have headaches? (yes/no)", "bool"),
+    ("Sore Throat", "🗣️ Do you have a sore throat? (yes/no)", "bool"),
+    ("Exposure", "👥 Any recent exposure to sick individuals? (yes/no)", "bool"),
+    ("Shortness of Breath", "🚨 Do you feel shortness of breath? (yes/no)", "bool"),
 ]
 
 # ------------------ Risk Plan ------------------
@@ -103,20 +99,6 @@ def generate_plan(symptoms):
         risk = "🟢 LOW"
         steps = ["Monitor for 48–72 hours.", "Hydrate and rest.", "See doctor if persists."]
     return risk, steps
-
-# ------------------ Text-to-Speech ------------------
-def play_audio(text):
-    tts = gTTS(text)
-    tts.save("voice.mp3")
-    with open("voice.mp3", "rb") as f:
-        audio_bytes = f.read()
-    b64 = base64.b64encode(audio_bytes).decode()
-    md = f"""
-        <audio autoplay="true">
-        <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-        </audio>
-    """
-    st.markdown(md, unsafe_allow_html=True)
 
 # ------------------ Auth Pages ------------------
 def signup_page():
@@ -175,20 +157,16 @@ def dashboard():
             key, question, qtype = questions[st.session_state.chat_stage]
             if not st.session_state.chat_history or st.session_state.chat_history[-1][1] != "doctor":
                 st.session_state.chat_history.append((question, "doctor"))
-                play_audio(question)
 
-            # Voice or text input
+            # User input
             user_input = st.text_input("Your Answer")
-            voice = speech_to_text(language="en")
-
-            if st.button("Send") or voice:
-                val = voice if voice else user_input
-                if val:
-                    st.session_state.chat_history.append((str(val), "user"))
+            if st.button("Send"):
+                if user_input:
+                    st.session_state.chat_history.append((str(user_input), "user"))
                     if qtype == "number":
-                        st.session_state.symptoms[key] = float(val)
+                        st.session_state.symptoms[key] = float(user_input)
                     else:
-                        st.session_state.symptoms[key] = (str(val).lower() in ["yes", "y", "true"])
+                        st.session_state.symptoms[key] = (str(user_input).lower() in ["yes", "y", "true"])
                     st.session_state.chat_stage += 1
                     st.rerun()
 
@@ -198,8 +176,11 @@ def dashboard():
             st.markdown(f"### Risk Level: {risk}")
             for s in steps:
                 st.write("- " + s)
-            play_audio(f"Your risk level is {risk}. Please follow the recommended steps.")
-            user["assessments"].append({"date": date.today().isoformat(),"risk": risk,"steps": steps})
+            user["assessments"].append({
+                "date": date.today().isoformat(),
+                "risk": risk,
+                "steps": steps
+            })
             if st.button("Start Over"):
                 st.session_state.chat_stage = 0
                 st.session_state.symptoms = {}
@@ -216,7 +197,14 @@ def dashboard():
             notes = st.text_area("Notes / Side effects")
             submitted = st.form_submit_button("Save Check-in")
             if submitted:
-                user["checkins"].append({"date": date.today().isoformat(),"score": score,"fever": fever,"spo2": spo2,"meds": meds,"notes": notes})
+                user["checkins"].append({
+                    "date": date.today().isoformat(),
+                    "score": score,
+                    "fever": fever,
+                    "spo2": spo2,
+                    "meds": meds,
+                    "notes": notes
+                })
                 st.success("Check-in saved ✅")
 
     elif menu == "Progress":
